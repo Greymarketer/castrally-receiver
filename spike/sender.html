@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CastRally spike sender</title>
+<meta name="viewport" content="width=device-width">
+<link rel="icon" href="data:,">
+<style>
+  body { font: 15px/1.5 -apple-system, Helvetica, Arial, sans-serif; margin: 24px; max-width: 900px; }
+  label { display: block; margin: 12px 0 4px; }
+  input { font: inherit; padding: 6px; width: 16em; }
+  button { font: inherit; padding: 8px 14px; margin: 6px 6px 6px 0; }
+  google-cast-launcher { display: inline-block; width: 40px; height: 40px; vertical-align: middle; --connected-color: #1a73e8; --disconnected-color: #555; }
+  pre { background: #f3f3f3; padding: 12px; overflow: auto; max-height: 60vh; }
+  .muted { color: #666; }
+</style>
+</head>
+<body>
+<h1>CastRally spike sender</h1>
+<p class="muted">Must be opened over HTTPS (the GitHub Pages URL) or from http://localhost. Pass the App ID as <code>?appId=XXXX</code> or type it below, then press the Cast button.</p>
+
+<label>Receiver App ID <input id="appId" placeholder="e.g. A1B2C3D4" spellcheck="false"></label>
+<button id="apply">Use this App ID</button>
+<google-cast-launcher></google-cast-launcher>
+<span id="status" class="muted">loading Cast SDK…</span>
+
+<p>
+  <button id="flood">Flood: start 120 msg/s</button>
+  <button id="start">Start cells</button>
+  <button id="ping">Ping</button>
+  <button id="results">Request results</button>
+  <button id="copy">Copy results</button>
+  <button id="restart">Restart receiver</button>
+</p>
+<p id="stats" class="muted">no session</p>
+<pre id="out">(results from the TV appear here every 5 s once connected)</pre>
+
+<script>
+const NS = 'urn:x-cast:com.castroom.rally';
+const $ = (id) => document.getElementById(id);
+const appIdFromQuery = new URLSearchParams(location.search).get('appId');
+const appId = appIdFromQuery || localStorage.getItem('castrally-appId') || '';
+$('appId').value = appId;
+$('apply').onclick = () => {
+  localStorage.setItem('castrally-appId', $('appId').value.trim());
+  location.search = '?appId=' + encodeURIComponent($('appId').value.trim());
+};
+
+let session = null, floodOn = false, sent = 0, lastSent = 0, pongs = [];
+// Worker timers are not throttled when the tab is hidden; main-thread setInterval drops to 1/s.
+const clock = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 1000 / 120)'])));
+clock.onmessage = () => { if (floodOn) send({ t: 'input', steer: Math.sin(sent / 20), brake: false, boost: sent % 50 === 0, seq: sent }); };
+
+window['__onGCastApiAvailable'] = (available) => {
+  if (!available) { $('status').textContent = 'Cast SDK unavailable (use Chrome over HTTPS or localhost)'; return; }
+  if (!appId) { $('status').textContent = 'enter the App ID first'; return; }
+  const context = cast.framework.CastContext.getInstance();
+  context.setOptions({ receiverApplicationId: appId, autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED });
+  const S = cast.framework.SessionState;
+  context.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, (e) => {
+    $('status').textContent = e.sessionState + (e.errorCode ? ' (' + e.errorCode + ')' : '');
+    session = context.getCurrentSession();
+    if (session && (e.sessionState === S.SESSION_STARTED || e.sessionState === S.SESSION_RESUMED)) {
+      session.addMessageListener(NS, (_ns, msg) => onMessage(JSON.parse(msg)));
+    }
+  });
+  $('status').textContent = 'ready: press the Cast button';
+};
+
+function onMessage(msg) {
+  if (msg.t === 'results') $('out').textContent = JSON.stringify(msg, null, 2);
+  if (msg.t === 'pong') pongs.push(performance.now() - msg.at);
+  refreshStats();
+}
+
+function send(obj) {
+  if (!session) return;
+  session.sendMessage(NS, obj).catch((err) => { $('status').textContent = 'send failed: ' + err; });
+  sent++;
+}
+
+$('flood').onclick = () => {
+  floodOn = !floodOn;
+  $('flood').textContent = floodOn ? 'Flood: stop' : 'Flood: start 120 msg/s';
+};
+$('start').onclick = () => send({ t: 'start' });
+$('ping').onclick = () => send({ t: 'ping', at: performance.now() });
+$('results').onclick = () => send({ t: 'results' });
+$('restart').onclick = () => send({ t: 'restart' });
+$('copy').onclick = () => {
+  const text = $('out').textContent;
+  if (!text.startsWith('{')) { $('status').textContent = 'nothing to copy yet'; return; }
+  navigator.clipboard.writeText(text).then(
+    () => { $('status').textContent = `copied ${text.length} chars`; },
+    (err) => { $('status').textContent = 'copy failed: ' + err + ' (select the text and Cmd+C)'; });
+};
+
+function refreshStats() {
+  const rate = sent - lastSent; lastSent = sent;
+  const warn = floodOn && rate < 100 ? ' (low: keep this tab in front)' : '';
+  const rtt = pongs.length ? ` | ping RTT last ${pongs[pongs.length - 1].toFixed(0)} ms (n=${pongs.length})` : '';
+  $('stats').textContent = `sent ${sent} messages, ${rate}/s${warn}${rtt}`;
+}
+setInterval(refreshStats, 1000);
+</script>
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+</body>
+</html>

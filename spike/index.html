@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CastRally spike</title>
+<meta name="viewport" content="width=device-width">
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+</style>
+<!-- Preload every module so the import chain costs one round trip, not one per depth level. -->
+<link rel="modulepreload" href="src/main.js">
+<link rel="modulepreload" href="src/build.js">
+<link rel="modulepreload" href="src/plan.js">
+<link rel="modulepreload" href="src/metrics.js">
+<link rel="modulepreload" href="src/overlay.js">
+<link rel="modulepreload" href="src/road.js">
+<link rel="modulepreload" href="src/atlas.js">
+<link rel="modulepreload" href="src/bench.js">
+<link rel="modulepreload" href="src/sim.js">
+<link rel="modulepreload" href="src/audio.js">
+<link rel="modulepreload" href="src/cast.js">
+<link rel="modulepreload" href="src/env.js">
+<!-- Google's receiver SDK must be loaded from gstatic, never self-hosted. -->
+<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+<script src="https://www.gstatic.com/cast/sdk/libs/devtools/debug_layer/caf_receiver_logger.js"></script>
+</head>
+<body>
+<canvas id="view" width="1280" height="720"></canvas>
+<!-- Plain-script fallback: if the module chain fails to parse on an old Chromium, the TV still shows the UA and the error. -->
+<pre id="boot" style="position:absolute;left:5%;top:5%;margin:0;color:#fff;font:20px monospace;white-space:pre-wrap"></pre>
+<script>
+  document.getElementById('boot').textContent = 'booting ' + navigator.userAgent;
+  window.addEventListener('error', function (e) { var b = document.getElementById('boot'); if (b) b.textContent += '\n' + e.message; });
+</script>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
